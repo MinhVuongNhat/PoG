@@ -83,7 +83,7 @@ if __name__ == '__main__':
             answer_add += "_BS123_20"
             print("*************active using ALL Beam Search***********")
 
-        if sys.argv[4] == "allr":
+        if sys.argv[4] in ("allr", "PoG"):
             if_using_all_r = True
             answer_add += "_allr"
             print("*************active using ALL related edges***********")

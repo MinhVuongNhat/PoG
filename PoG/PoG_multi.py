@@ -25,7 +25,7 @@ import numpy as np
 import re
 import ast
 
-LLM_model = "gpt"
+LLM_model = "ollama:qwen2.5:14b"
 # LLM_model = "google"
 Num_run_LLM = 0
 Global_depth = 3
@@ -36,7 +36,7 @@ def change_depth(depth = 3):
     global Global_depth
     Global_depth = depth
     print(f"Global depth is changed to {Global_depth}")
-def changemode(name = "gpt3"):  
+def changemode(name = "ollama:qwen2.5:14b"):  
     global LLM_model
     LLM_model = name
     print(f"LLM model is changed to {LLM_model}")
@@ -198,7 +198,7 @@ def beam_path_select(question, split_answer,data, to_be_deleted_path, prompt_for
     if len(prunned_path_number) == 0:
         print(question_answer)
         print("LLM reasonning error, requsting again")
-        time.sleep(120)
+        time.sleep(3)
         input_error()
 
         # increment(-1)
@@ -510,7 +510,7 @@ def CoT_entity_expand_inchain(question, split_answer, data, main_path = None):
         if len(CoT_list) == 0:
             print("LLM reasonning error, requsting again")
             print(question_answer)
-            time.sleep(120)
+            time.sleep(3)
             input_error()
 
             increment(-1)
@@ -935,9 +935,15 @@ if __name__ == '__main__':
     if sys.argv[5] == "gpt4":
         LLM_model = "gpt4"
         changemode("gpt4")
+    elif "groq" in sys.argv[5]:
+        LLM_model = sys.argv[5]
+        changemode(LLM_model)
+    elif "ollama" in sys.argv[5] or "qwen" in sys.argv[5]:
+        LLM_model = sys.argv[5]
+        changemode(LLM_model)
     else:
-        LLM_model = "gpt3"
-        changemode("gpt3")
+        LLM_model = "ollama:qwen2.5:14b"
+        changemode("ollama:qwen2.5:14b")
     
     change_depth(int(sys.argv[6]))
         
@@ -958,6 +964,8 @@ if __name__ == '__main__':
     # for Global_depth in [2,3,4,5,1]:
     for Global_depth in [Global_depth]:
         print("Global_depth:", Global_depth)
+        os.makedirs('answer', exist_ok=True)    # ensure output dir exists
+        os.makedirs('subgraph', exist_ok=True)  # ensure subgraph dir exists
         answer_db = f'answer/{file_name}_answer_{Global_depth}_gpt_{version}{answer_add}.db'
         print(f'subgraph/{file_name}_answer_{Global_depth}_gpt_{version}{answer_add}.db')
         answer_gpt3_db = f'subgraph/{file_name}_answer_{Global_depth}_gpt_3{answer_add}.db'

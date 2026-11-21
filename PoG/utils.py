@@ -8,7 +8,6 @@ from rank_bm25 import BM25Okapi
 from sentence_transformers import util
 from sentence_transformers import SentenceTransformer
 
-import google.generativeai as genai
 import os
 import openai
 import re
@@ -20,89 +19,159 @@ def count_tokens(text, model="gpt-3.5-turbo"):
     encoding = tiktoken.encoding_for_model(model)
     return len(encoding.encode(text))
 
-def run_LLM(prompt, model,temperature=0.4):
+def run_LLM(prompt, model, temperature=0.4):
     result = ''
-    if "google" in model:
-        genai.configure(api_key="your_api_keys")
 
-        # model = genai.GenerativeModel('gemini-1.5-flash')
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        system_message = "You are an AI assistant that helps people find information."
+    # ------------------------------------------------------------------ #
+    #  Ollama Local (http://localhost:11434/v1)                           #
+    #  Default for PoG: qwen2.5:14b                                       #
+    # ------------------------------------------------------------------ #
+    if "ollama" in model or "qwen" in model or model in ("local", "gpt3"):
+        ollama_model = model.split("ollama:")[-1] if ":" in model else model
+        if ollama_model in ("", "ollama", "local", "gpt3"):
+            ollama_model = "qwen2.5:14b"
 
-        chat = model.start_chat(
-            history=[
-                {"role": "user", "parts": system_message},
-            ]
+        client = OpenAI(
+            base_url="http://localhost:11434/v1",
+            api_key="ollama",
         )
-
+        system_message = "You are an AI assistant that helps people find information."
+        messages = [
+            {"role": "system", "content": system_message},
+            {"role": "user",   "content": prompt},
+        ]
         try_time = 0
-        while try_time<3:
+        while try_time < 3:
+            try:
+                response = client.chat.completions.create(
+                    model=ollama_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=1024,
+                )
+                result = response.choices[0].message.content or ""
+                print(f"Ollama ({ollama_model}) response: ")
+                return result
+            except Exception as e:
+                print(f"Ollama error: {e}")
+                print("Retrying in 2 seconds...")
+                try_time += 1
+                time.sleep(2)
+        return result
+
+    # ------------------------------------------------------------------ #
+    #  Groq Cloud  (OpenAI-compatible, via api.groq.com)                  #
+    #  Trigger:  model name contains "groq"                               #
+    # ------------------------------------------------------------------ #
+    elif "groq" in model:
+        GROQ_API_KEY = "your_api_key"
+        sub_model = model.split("groq:")[-1] if ":" in model else model
+        if sub_model in ("", "groq"):
+            groq_model = "qwen/qwen3.8-27b"
+        else:
+            groq_model = sub_model
+
+        client = OpenAI(
+            api_key=GROQ_API_KEY,
+            base_url="https://api.groq.com/openai/v1",
+        )
+        system_message = "You are an AI assistant that helps people find information."
+        messages = [
+            {"role": "system", "content": system_message},
+            {"role": "user",   "content": prompt},
+        ]
+        try_time = 0
+        while try_time < 3:
+            try:
+                response = client.chat.completions.create(
+                    model=groq_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=1024,
+                )
+                msg = response.choices[0].message
+                result = msg.content or ""
+                if not result.strip() and getattr(msg, "reasoning", None):
+                    result = msg.reasoning or ""
+                print(f"Groq ({groq_model}) response: ")
+                return result
+            except Exception as e:
+                print(f"Groq error: {e}")
+                print("Retrying in 2 seconds...")
+                try_time += 1
+                time.sleep(2)
+        return result
+
+    # ------------------------------------------------------------------ #
+    #  Google Gemini                                                        #
+    # ------------------------------------------------------------------ #
+    elif "google" in model:
+        import google.generativeai as genai  # lazy import — only needed when using Google
+        GOOGLE_API_KEY = "your_google_api_key"   # ← thay bằng Gemini key nếu dùng
+        genai.configure(api_key=GOOGLE_API_KEY)
+        gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+        system_message = "You are an AI assistant that helps people find information."
+        chat = gemini_model.start_chat(
+            history=[{"role": "user", "parts": system_message}]
+        )
+        try_time = 0
+        while try_time < 3:
             try:
                 response = chat.send_message(prompt)
                 print("Google response: ")
-                return (response.text)
-                break
+                return response.text
             except Exception as e:
-                error_message = str(e)
-                print(f"Google error: {error_message}")
-                print("Retrying in 2 seconds...")
+                print(f"Google error: {e}")
+                print("Retrying in 40 seconds...")
                 try_time += 1
                 time.sleep(40)
-                    
+        return result
 
-    # openai_api_base = "http://localhost:8000/v1"
+    # ------------------------------------------------------------------ #
+    #  OpenAI GPT                                                          #
+    # ------------------------------------------------------------------ #
     elif "gpt" in model:
-        openai_api_key = "your_api_keys"
+        openai_api_key = "your_openai_api_key"   # ← thay bằng OpenAI key nếu dùng
         if model == "gpt4":
-            # model = "gpt-4-0613"
             model = "gpt-4-turbo"
         else:
             model = "gpt-3.5-turbo-0125"
-        # model = "gpt-3.5-turbo-0125"
-        # model = "gpt-3.5-turbo"
-        # model = "gpt-4-turbo"
-        # model = "gpt-4o"
-        client = OpenAI(
-            # defaults to os.environ.get("OPENAI_API_KEY")
-            api_key=openai_api_key,
-            # base_url=openai_api_base,
-        )
+        client = OpenAI(api_key=openai_api_key)
+
+    # ------------------------------------------------------------------ #
+    #  Local vLLM server (localhost:8000)                                  #
+    # ------------------------------------------------------------------ #
     else:
-        openai_api_base = "http://localhost:8000/v1"
-        openai_api_key = "EMPTY"
         client = OpenAI(
-            # defaults to os.environ.get("OPENAI_API_KEY")
-            api_key=openai_api_key,
-            base_url=openai_api_base,
+            api_key="EMPTY",
+            base_url="http://localhost:8000/v1",
         )
+
     system_message = "You are an AI assistant that helps people find information."
-    messages = [{"role": "system", "content": system_message}]
-    message_prompt = {"role": "user", "content": prompt}
-    messages.append(message_prompt)
+    messages = [
+        {"role": "system", "content": system_message},
+        {"role": "user",   "content": prompt},
+    ]
     try_time = 0
-    while try_time<3:
+    while try_time < 3:
         try:
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,
                 temperature=temperature,
                 max_tokens=512,
-                frequency_penalty= 0,
-                presence_penalty=0
+                frequency_penalty=0,
+                presence_penalty=0,
             )
             result = response.choices[0].message.content
             break
         except Exception as e:
-            error_message = str(e)
-            print(f"OpenAI error: {error_message}")
+            print(f"OpenAI error: {e}")
             print("Retrying in 2 seconds...")
             try_time += 1
             time.sleep(2)
 
     print(f"{model} response: ")
-
-        # print("end openai")
-
     return result
 
 def prepare_dataset(dataset_name):
